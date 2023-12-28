@@ -187,3 +187,86 @@ fun main() = runBlocking {
 }
 ```
 이 예제는 천개를 1초에 두번씩 프린트하는 예제이다.
+
+# Cancellation and Timeouts
+
+첫번째 예제는 단순히 코루틴을 취소하는 명령어이다.
+
+```kotlin
+fun main() = runBlocking { this: CoroutineScope
+    val job = launch { this: CoroutineScope
+        repeat(times:1000) { i ->
+            println("job: I'm sleeping $1 ...")
+            delay(timeMillis:500L)
+        }
+    }
+    delay(timeMilis:13000L)
+    println(msg: "main: I'm tired of waiting!")
+    job.cancel()
+    job.join()
+    println(msg: "main: Now I can quit.")
+}
+
+```
+job에는 실행하고 있는 코루틴을 캔슬하는 기능도 있음. 
+위의 코드에서 cancel()이 없다면 1000번동안 0.5초 간격으로 출력을 하게된다.
+cancel이 있다면 1.3초 동안 반복을하다 코루틴을 중단하고 메인 펑션이 끝나게된다.
+
+두번쨰 예제는 cancel이 실행되기 위하여 충족해야할 조건이 있는데 그 조건을 알아보자.
+
+```kotlin
+fun main() = runBlocking { this: CoroutineScope 
+    val startTime = System.currentTimeMillis()
+    val job = launch(Dispatchers.Default) {this: CoroutineScope
+        var nextPrintTime = startTime
+        var i = 0
+        while (i < 5) {
+            if (System.currentTimeMillis() >= nextPrintTime) {
+                println(msg : "job : I'm sleeping ${i++} ...")
+                nextPrintTime += 500L
+            }
+        }
+    }
+    delay(timeMillis: 1300L)
+    println(msg: "main: I'm tired of waiting!")
+    job.cancelAndJoin()
+    println(msg: "main: Now I cna quit")
+}
+```
+이 코드는 i의 값을 점점 늘려가면서 출력하되 1.3초 뒤에 코루틴이 캔슬되도록하는 코드이다.
+이것을 실행하면 i의 값이 0 1 2까지만 나오게 하고 싶었지만 0 1 2 3 4까지 나와버린다.
+왜냐하면 코루틴 자체가 캔슬되는데 협조적이지 않았기 때문이다. 무슨 말이냐면
+첫번째 예제에는 코루틴안에 delay(timeMillis:500L) 이라는 서스펜드 펑션이 있었는데, 두번째 예제에선 연산 명령만 있고 서스펜드 펑션이 없었기 때문이다. 
+
+여기선 delay같은 서스펜드 펑션보다 더 좋은 서스펜드 청션이 있는데 바로 yield이다.
+yield를 사용하면 delay(1L)를 주지 않고도 2까지만 출력할수 있다. 
+
+그리고 이런경우엔 코루틴이 중단되었다가 재개될때 인셉션을 던진다 그 인셉션을 보기위해
+try-catch를 이용하면 볼수있다.
+
+```kotlin
+fun main() = runBlocking { this: CoroutineScope 
+    val startTime = System.currentTimeMillis()
+    val job = launch(Dispatchers.Default) {this: CoroutineScope
+        
+        try {
+            var nextPrintTime = startTime
+            var i = 0
+            while (i < 5) {
+                if (System.currentTimeMillis() >= nextPrintTime) {
+                    yield( )
+                    println(msg : "job : I'm sleeping ${i++} ...")
+                    nextPrintTime += 500L
+                }
+            }   
+        } catch (e: Exception) {
+            kotlin.io.println("Exception [$e])
+        }
+    }
+    
+    delay(timeMillis: 1300L)
+    println(msg: "main: I'm tired of waiting!")
+    job.cancelAndJoin()
+    println(msg: "main: Now I cna quit")
+}
+```
