@@ -270,3 +270,141 @@ fun main() = runBlocking { this: CoroutineScope
     println(msg: "main: Now I cna quit")
 }
 ```
+이렇게 작성하면 된다.
+
+kotlinconf 2017에서 예제를 하나 보여준다.
+
+```kotlin
+fun posrItem(item: item) {
+    val token = requestToken()
+    val post = creatposr(token, item)
+    processPost(post)
+}
+```
+위의 예제는 서버에서 토큰을 불러오고 어떤 게시물을 포스트한다음 포스트 완료처리를 하는 예제이다.
+위의 예제로 알 수 있는것은 CPS == callbacks이라는걸 알 수 있다.
+
+다음 예제이다.
+
+```kotlin
+suspend fun crearePost(token: Token, item: Item) : Post {...} 
+```
+서스펜드 함수를 생성했더니 이 코드가 중단했다 재개를 한다는것이다.
+
+코틀린 java식은 코드를 작성한 후에 tools - kotlin - show Kolin Bytecode - 디컴파일 
+
+```kotlin
+GlobalScope.launch {
+    val userData = fetchUserData()
+    var userCache = cacheUserData(userData)
+    updateTextView(userCache)
+}
+```
+when문 안에서 기준이 되는 변수의 값을 늘려가면서 순차적으로 실행하는 코드이다.
+when문 이기때문에 중단하거나 재개하는것이 가능하다.
+
+디스패처는 쿠로틴이 어떤 스레드에수 실행시킬지 결정해주는 요소이다. 예를들어
+
+```kotlin
+import kotlinx.coroutines.*
+
+fun main() = runBlocking<Unit> {
+    launch { // context of the parent, main runBlocking coroutine
+        println("main runBlocking      : I'm working in thread ${Thread.currentThread().name}")
+    }
+    launch(Dispatchers.Unconfined) { // not confined -- will work with main thread
+        println("Unconfined            : I'm working in thread ${Thread.currentThread().name}")
+    }
+    launch(Dispatchers.Default) { // will get dispatched to DefaultDispatcher
+        println("Default               : I'm working in thread ${Thread.currentThread().name}")
+    }
+    launch(newSingleThreadContext("MyOwnThread")) { // will get its own new thread
+        println("newSingleThreadContext: I'm working in thread ${Thread.currentThread().name}")
+    }
+}
+```
+
+1번째 코루틴은 runblocking에서 옵셔널 파라미터 없이 실행된다.
+2번째 코루틴은 main 스레드에서 실행된다
+3번째 코루틴은 worker-1에서 실행된다.
+4번째 코루틴은 한번 사용할떄마다 스레드를 만드는데 실제 사용할떄는 
+newSingleTreadContext("MyOwnTread").use로 쓰는게 좋다.
+
+코루틴의 실행 순서는 2번-3번-4번-1번이다.
+
+```kotlin
+import kotlinx.coroutines.*
+
+fun log(msg: String) = println("[${Thread.currentThread().name}] $msg")
+
+fun main() = runBlocking<Unit> {
+    val a = async {
+        log("I'm computing a piece of the answer")
+        6
+    }
+    val b = async {
+        log("I'm computing another piece of the answer")
+        7
+    }
+    log("The answer is ${a.await() * b.await()}")
+}
+```
+코틀린 라이브러리는 코루틴을 디버깅하기 위한 도구가 있는데
+log라는 함수는 지금 어디서 실행되고 있는지 알려준다.
+만약 어느 코루틴에서 실행되고 있는지 보고싶다면 아래 코드와 같이 작성해주면 된다.
+
+```kotlin
+import kotlinx.coroutines.*
+
+fun log(msg: String) = println("[${Thread.currentThread().name}] $msg")
+
+fun main() {
+    newSingleThreadContext("Ctx1").use { ctx1 ->
+        newSingleThreadContext("Ctx2").use { ctx2 ->
+            runBlocking(ctx1) {
+                log("Started in ctx1")
+                withContext(ctx2) {
+                    log("Working in ctx2")
+                }
+                log("Back to ctx1")
+            }
+        }
+    }
+}
+```
+withcontext를 통해서 스레드간을 점프할수 있다.
+
+코루틴 스코프는 예제를 먼저 보고 설명하도록 하겠다.
+
+```kotlin
+import kotlinx.coroutines.*
+
+class Activity {
+    private val mainScope = CoroutineScope(Dispatchers.Default) // use Default for test purposes
+
+    fun destroy() {
+        mainScope.cancel()
+    }
+
+    fun doSomething() {
+        // launch ten coroutines for a demo, each working for a different time
+        repeat(10) { i ->
+            mainScope.launch {
+                delay((i + 1) * 200L) // variable delay 200ms, 400ms, ... etc
+                println("Coroutine $i is done")
+            }
+        }
+    }
+} // class Activity ends
+
+fun main() = runBlocking<Unit> {
+    val activity = Activity()
+    activity.doSomething() // run test function
+    println("Launched coroutines")
+    delay(500L) // delay for half a second
+    println("Destroying activity!")
+    activity.destroy() // cancels all coroutines
+    delay(1000) // visually confirm that they don't work
+}
+```
+안드로이드 앱을 쓰다가 앱을 종료하면 작업을 멈춰야하기때문에 코루틴 스코프가 존재한다.
